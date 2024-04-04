@@ -1,11 +1,18 @@
 cmake_minimum_required(VERSION 3.27)
-project(LightSim C)
+project(LightSim CXX)
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 20)
 
-add_executable(LightSim WIN32 main.c
+add_executable(LightSim WIN32 main.cpp
+        render.cpp
+        render.hpp
         render.c
         render.h)
 
-target_compile_options(LightSim PRIVATE -Wall -Wextra -Wpedantic -march=native)
+target_compile_options(LightSim PRIVATE -Wall -Wextra -Wpedantic -march=native
+        -ffinite-math-only
+        -fno-math-errno
+        -fno-trapping-math
+        -fno-signed-zeros
+)
 target_compile_definitions(LightSim PRIVATE NOMINMAX)
