@@ -1,15 +1,12 @@
 #include "render.hpp"
 
-#define UNLIKELY(x) __builtin_expect(!!(x), 0)
-#define LIKELY(x) __builtin_expect(!!(x), 1)
-
 #ifndef PI
-#define PI 3.141592653589793238462643383279L
+#define PI 3.141592653589793238462643383279
 #endif
 
 void Renderer::Calculate() {
     if (frame < 300) {
-        auto repl = sinl((frame * 45.83662439235437L) * (PI / 180)) * 12;
+        auto repl = sin((frame * 45.83662439235437) * (PI / 180)) * 12;
         std::fill(PARUNS wave_height.begin() + light_pos - 1,
                   wave_height.begin() + (light_pos + sizes.light), Vec3{repl, repl, repl});
     }
@@ -21,9 +18,9 @@ void Renderer::Calculate() {
     });
     std::transform(PARUNS accumulated_light.cbegin(), accumulated_light.cend(), wave_height.cbegin(), accumulated_light.begin(),
     [this](const Vec3& al, const Vec3& wh) {
-        return Vec3{fabsl(wh.x) * ACCUMULATED_EXPOSURE + al.x,
-                    fabsl(wh.y) * ACCUMULATED_EXPOSURE + al.y,
-                    fabsl(wh.z) * ACCUMULATED_EXPOSURE + al.z};
+        return Vec3{fabs(wh.x) * ACCUMULATED_EXPOSURE + al.x,
+                    fabs(wh.y) * ACCUMULATED_EXPOSURE + al.y,
+                    fabs(wh.z) * ACCUMULATED_EXPOSURE + al.z};
     });
     std::copy(PARUNS wave_height.cbegin(), wave_height.cend() - 1, cmava.begin() + 1);
     cmava[0] = {0, 0, 0};
@@ -76,20 +73,22 @@ void Renderer::Calculate() {
     ++frame;
 }
 
+#include <fstream>
+#include <format>
 void Renderer::Render() {
     std::transform(PARUNS accumulated_light.cbegin(), accumulated_light.cend(), rmtmpv.begin(),
                    [](const Vec3& alv) {
         return Vec3{
-                powl((alv.x + 1 - fabsl(alv.x - 1)) / 2.0, 2) * 255,
-                powl((alv.y + 1 - fabsl(alv.y - 1)) / 2.0, 2) * 255,
-                powl((alv.z + 1 - fabsl(alv.z - 1)) / 2.0, 2) * 255};
+                pow((alv.x + 1 - fabs(alv.x - 1)) / 2.0, 2) * 255,
+                pow((alv.y + 1 - fabs(alv.y - 1)) / 2.0, 2) * 255,
+                pow((alv.z + 1 - fabs(alv.z - 1)) / 2.0, 2) * 255};
     });
     std::transform(PARUNS rmtmpv.cbegin(), rmtmpv.cend(), pixel_mass.cbegin(), rmrgbdv.begin(),
                    [this](const Vec3& mapv, render_decimal mass) {
        auto tmp2 = mass < 1 ? Vec3{
-               ((mapv.x + GLASS_COLORS.x + 255) - fabsl(mapv.x + GLASS_COLORS.x - 255)) / 2,
-               ((mapv.y + GLASS_COLORS.y + 255) - fabsl(mapv.y + GLASS_COLORS.y - 255)) / 2,
-               ((mapv.z + GLASS_COLORS.z + 255) - fabsl(mapv.z + GLASS_COLORS.z - 255)) / 2
+               ((mapv.x + GLASS_COLORS.x + 255) - fabs(mapv.x + GLASS_COLORS.x - 255)) / 2,
+               ((mapv.y + GLASS_COLORS.y + 255) - fabs(mapv.y + GLASS_COLORS.y - 255)) / 2,
+               ((mapv.z + GLASS_COLORS.z + 255) - fabs(mapv.z + GLASS_COLORS.z - 255)) / 2
        } : mapv;
        return RGB(lroundl(tmp2.x), lroundl(tmp2.y), lroundl(tmp2.z));
     });
@@ -112,6 +111,19 @@ void Renderer::Render() {
     SetDIBits(hdcRender, reinterpret_cast<HBITMAP>(GetCurrentObject(hdcRender, OBJ_BITMAP)),
               0, sizes.view, rmrgbdv.data(), &bmi, DIB_RGB_COLORS);
     dcrender_mutex.unlock();
+
+    std::ofstream file(std::format("./out/s{:03}f{:06}.bmp", sizes.basic, frame).c_str(), std::ios::binary);
+    BITMAPFILEHEADER bfh = {
+            .bfType = 0x4D42,
+            .bfSize = static_cast<DWORD>(sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + sizes.image_data * 4),
+            .bfReserved1 = 0,
+            .bfReserved2 = 0,
+            .bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER),
+    };
+    file.write(reinterpret_cast<const char*>(&bfh), sizeof(BITMAPFILEHEADER));
+    file.write(reinterpret_cast<const char*>(&bmi.bmiHeader), sizeof(BITMAPINFOHEADER));
+    file.write(reinterpret_cast<const char*>(rmrgbdv.data()), sizes.image_data * 4);
+    file.close();
 }
 
 DWORD WINAPI Renderer::Thread(LPVOID lpThreadParameter) {

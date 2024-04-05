@@ -10,7 +10,7 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     static bool bIsRenderingKeyDown = false;
     switch (message) {
         case WM_CREATE: {
-            rd = new Renderer(hWnd, 6);
+            rd = new Renderer(hWnd, 12);
             {
                 auto referenceDC = CreateDCW(L"DISPLAY", nullptr, nullptr, nullptr);
                 hBackBufferDC = CreateCompatibleDC(referenceDC);
@@ -58,10 +58,15 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
             auto hdcWindow2 = CreateCompatibleDC(hdcWindow);
             DeleteObject(SelectObject(hdcWindow2, CreateCompatibleBitmap(hdcWindow, rcClient.right, rcClient.bottom)));
             {
-                auto hbrBlack = CreateSolidBrush(RGB(0, 0, 0x7F));
-                FillRect(hdcWindow2, &rcClient, hbrBlack);
-                DeleteObject(hbrBlack);
+                if (bIsRenderingKeyDown) {
+                    SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
+                    SetEvent(rd->hNextRenderEvent);
+                } else
+                    SetWindowTextW(hWnd, std::format(L"LightSim - F{:05}", rd->frame).c_str());
             }
+            auto hbrBlack = CreateSolidBrush(RGB(0, 0, 0x7F));
+            FillRect(hdcWindow2, &rcClient, hbrBlack);
+            DeleteObject(hbrBlack);
             auto mindim = std::min(rcClient.bottom, rcClient.right);
             int w = mindim;
             int h = mindim;
@@ -91,11 +96,6 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
             }
             DeleteDC(hdcWindow2);
             EndPaint(hWnd, &ps);
-            if (bIsRenderingKeyDown) {
-                SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
-                SetEvent(rd->hNextRenderEvent);
-            } else
-                SetWindowTextW(hWnd, std::format(L"LightSim - F{:05}", rd->frame).c_str());
             break;
         }
         case WM_KEYDOWN:

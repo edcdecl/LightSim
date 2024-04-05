@@ -3,11 +3,7 @@ project(LightSim CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(LightSim WIN32 main.cpp
-        render.cpp
-        render.hpp
-        render.c
-        render.h)
+add_executable(LightSim WIN32 main.cpp render.cpp)
 
 target_compile_options(LightSim PRIVATE -Wall -Wextra -Wpedantic -march=native
         -ffinite-math-only

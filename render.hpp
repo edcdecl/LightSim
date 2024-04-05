@@ -16,11 +16,10 @@
 #define PARUNS
 #endif
 
-typedef long double render_decimal;
+typedef double render_decimal;
 struct Vec3 {
     render_decimal x, y, z;
 };
-
 struct Renderer final {
     struct sizes_t {
         long basic;
@@ -40,12 +39,12 @@ struct Renderer final {
     std::vector<Vec3> wave_height;
     std::vector<Vec3> wave_velocity;
     std::vector<Vec3> accumulated_light;
-    std::vector<render_decimal> pixel_mass;
     std::vector<Vec3> rgb_mass;
+    std::vector<render_decimal> pixel_mass;
     HANDLE hStopRenderEvent;
     HANDLE hRenderThread;
     HWND hWnd;
-    uint64_t frame;
+    long frame;
     long light_pos;
     unsigned batch_calculate;
     std::mutex dcrender_mutex;
@@ -59,7 +58,6 @@ struct Renderer final {
     std::vector<Vec3> cmavd;
     std::vector<COLORREF> rmrgbdv;
     std::vector<Vec3> rmtmpv;
-
     void AppendError(const std::wstring &err) {
         std::lock_guard<std::mutex> lock(error_mutex);
         error += err;
@@ -73,32 +71,32 @@ struct Renderer final {
         error.clear();
     }
 
-    explicit Renderer(HWND hWnd, long initial_size) : ACCUMULATED_EXPOSURE(0.0005L),
-                                                      COLOR_SHIFT(0.06L, 0L, -0.06L),
-                                                      sizes(initial_size,
-                                                            initial_size * 100,
-                                                            (initial_size * 100) * (initial_size * 100),
-                                                            lroundl(initial_size * 100.0L / 6.0L)),
-                                                      GLASS_COLORS(25, 25, 25),
-                                                      wave_height(sizes.image_data),
-                                                      wave_velocity(sizes.image_data),
-                                                      accumulated_light(sizes.image_data),
-                                                      pixel_mass(sizes.image_data),
-                                                      rgb_mass(sizes.image_data),
-                                                      hWnd(hWnd),
-                                                      frame(0),
-                                                      light_pos(floorl(sizes.view / 5.0L) * sizes.view + floorl(sizes.view / 5.0L) + 1),
-                                                      batch_calculate(1),
-                                                      cmava(sizes.image_data),
-                                                      cmavb(sizes.image_data),
-                                                      cmavc(sizes.image_data),
-                                                      cmavd(sizes.image_data),
-                                                      rmrgbdv(sizes.image_data),
-                                                      rmtmpv(sizes.image_data) {
+    explicit Renderer(HWND hWnd, int initial_size) : ACCUMULATED_EXPOSURE(0.0005),
+                                                     COLOR_SHIFT(0.06, 0L, -0.06),
+                                                     sizes(initial_size,
+                                                           initial_size * 100,
+                                                           (initial_size * 100) * (initial_size * 100),
+                                                           lroundl(initial_size * 100.0 / 6.0)),
+                                                     GLASS_COLORS(25, 25, 25),
+                                                     wave_height(sizes.image_data),
+                                                     wave_velocity(sizes.image_data),
+                                                     accumulated_light(sizes.image_data),
+                                                     rgb_mass(sizes.image_data),
+                                                     pixel_mass(sizes.image_data),
+                                                     hWnd(hWnd),
+                                                     frame(0),
+                                                     light_pos(static_cast<long>(floor(sizes.view / 5.0) * sizes.view + floor(sizes.view / 5.0) + 1)),
+                                                     batch_calculate(1),
+                                                     cmava(sizes.image_data),
+                                                     cmavb(sizes.image_data),
+                                                     cmavc(sizes.image_data),
+                                                     cmavd(sizes.image_data),
+                                                     rmrgbdv(sizes.image_data),
+                                                     rmtmpv(sizes.image_data) {
         std::iota(pixel_mass.begin(), pixel_mass.end(), 1);
         std::transform(PARUNS pixel_mass.cbegin(), pixel_mass.cend(), pixel_mass.begin(), [this](render_decimal i) {
-            return sqrtl(powl(floorl(i / sizes.view) - (sizes.view / 2.0), 2) +
-                         powl(((int)(i - 1) % sizes.view) - (sizes.view / 2.0), 2)) < sizes.view / 4.0 ? 0.75 : 1;
+            return sqrtl(pow(floor(i / sizes.view) - (sizes.view / 2.0), 2) +
+                         pow(((int)(i - 1) % sizes.view) - (sizes.view / 2.0), 2)) < sizes.view / 4.0 ? 0.75 : 1;
         });
         // shift it ahead of time, so we don't have to waste time calculating in the render method
         std::transform(PARUNS pixel_mass.cbegin(), pixel_mass.cend(), rgb_mass.begin(), [this](render_decimal pmv) {
