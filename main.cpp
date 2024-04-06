@@ -6,67 +6,68 @@ static WCHAR g_szClassName[] = L"LightSim";
 
 static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     static Renderer* rd = nullptr;
-    static HDC hBackBufferDC = nullptr;
+    static HDC hdcRenderDCCopy = nullptr;
+    static HBITMAP hbmOldRenderDCCopy = nullptr;
     static bool bIsRenderingKeyDown = false;
     switch (message) {
         case WM_CREATE: {
-            rd = new Renderer(hWnd, 12);
-            {
-                auto referenceDC = CreateDCW(L"DISPLAY", nullptr, nullptr, nullptr);
-                hBackBufferDC = CreateCompatibleDC(referenceDC);
-                if (!hBackBufferDC) {
-                    MessageBoxW(hWnd, L"Failed to create back buffer DC", L"Error", MB_OK);
-                    return -1;
-                }
-                DeleteObject(SelectObject(hBackBufferDC, CreateCompatibleBitmap(referenceDC, rd->sizes.view, rd->sizes.view)));
-                DeleteDC(referenceDC);
-            }
+            rd = new Renderer(hWnd, 8);
+            auto referenceDC = CreateDCW(L"DISPLAY", nullptr, nullptr, nullptr);
+            if (!referenceDC)
+                throw std::runtime_error("Failed to create reference DC");
+            hdcRenderDCCopy = CreateCompatibleDC(referenceDC);
+            if (!hdcRenderDCCopy)
+                throw std::runtime_error("Failed to create back buffer DC");
+            hbmOldRenderDCCopy = static_cast<HBITMAP>(SelectObject(hdcRenderDCCopy, CreateCompatibleBitmap(referenceDC, rd->sizes.view, rd->sizes.view)));
+            if (!hbmOldRenderDCCopy)
+                throw std::runtime_error("Failed to create back buffer bitmap");
+            if (!DeleteDC(referenceDC))
+                throw std::runtime_error("Failed to delete reference DC");
             rd->hRenderThread = CreateThread(nullptr, 0, Renderer::Thread, rd, 0, nullptr);
             break;
         }
         case WM_COPYRENDER: {
             RECT rcClient;
-            rd->dcrender_mutex.lock();
+            rd->hdcRender_mutex.lock();
             GetClientRect(hWnd, &rcClient);
-            if (BitBlt(hBackBufferDC,
-                       0,
-                       0,
-                       rd->sizes.view,
-                       rd->sizes.view,
-                       rd->hdcRender,
-                       0,
-                       0,
-                       SRCCOPY)) {
-                rd->dcrender_mutex.unlock();
-                RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE);
-            } else {
-                rd->dcrender_mutex.unlock();
-                rd->AppendError(L"BitBlt failed\n");
-                PostMessageW(hWnd, WM_ERRORRENDER, 0, 0);
-            }
-            break;
-        }
-        case WM_ERRORRENDER: {
-            rd->ShowError();
+            if (!BitBlt(hdcRenderDCCopy,
+                        0,
+                        0,
+                        rd->sizes.view,
+                        rd->sizes.view,
+                        rd->hdcRender,
+                        0,
+                        0,
+                        SRCCOPY))
+                throw std::runtime_error("Failed to call BitBlt");
+            rd->hdcRender_mutex.unlock();
+            RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE);
             break;
         }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             auto hdcWindow = BeginPaint(hWnd, &ps);
+            if (bIsRenderingKeyDown && rd->tick < 2000) {
+                SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
+                SetEvent(rd->hNextRenderEvent);
+            } else
+                SetWindowTextW(hWnd, std::format(L"LightSim - F{:010} T{:05}", rd->frame, rd->tick).c_str());
             RECT rcClient;
-            GetClientRect(hWnd, &rcClient);
+            if (!GetClientRect(hWnd, &rcClient))
+                throw std::runtime_error("Failed to get drawable area dimensions");
             auto hdcWindow2 = CreateCompatibleDC(hdcWindow);
-            DeleteObject(SelectObject(hdcWindow2, CreateCompatibleBitmap(hdcWindow, rcClient.right, rcClient.bottom)));
-            {
-                if (bIsRenderingKeyDown) {
-                    SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
-                    SetEvent(rd->hNextRenderEvent);
-                } else
-                    SetWindowTextW(hWnd, std::format(L"LightSim - F{:05}", rd->frame).c_str());
-            }
-            auto hbrBlack = CreateSolidBrush(RGB(0, 0, 0x7F));
-            FillRect(hdcWindow2, &rcClient, hbrBlack);
-            DeleteObject(hbrBlack);
+            if (!hdcWindow2)
+                throw std::runtime_error("Failed to create drawing backbuffer DC");
+            auto hbmOldWindow2 = SelectObject(hdcWindow2, CreateCompatibleBitmap(hdcWindow, rcClient.right, rcClient.bottom));
+            if (!hbmOldWindow2)
+                throw std::runtime_error("Failed to create drawing backbuffer bitmap");
+            auto hbrBG = CreateSolidBrush(RGB(0, 0, 0x3F));
+            if (!hbrBG)
+                throw std::runtime_error("Failed to create brush");
+            if (!FillRect(hdcWindow2, &rcClient, hbrBG))
+                throw std::runtime_error("Failed to clear window");
+            if (!DeleteObject(hbrBG))
+                throw std::runtime_error("Failed to delete brush");
             auto mindim = std::min(rcClient.bottom, rcClient.right);
             int w = mindim;
             int h = mindim;
@@ -77,25 +78,21 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
                             y,
                             w,
                             h,
-                            hBackBufferDC,
+                            hdcRenderDCCopy,
                             0,
                             0,
                             rd->sizes.view,
                             rd->sizes.view,
-                            SRCCOPY)) {
-                rd->AppendError(L"BitBlt failed\n");
-                PostMessageW(hWnd, WM_ERRORRENDER, 0, 0);
-                DeleteDC(hdcWindow2);
-                return 0;
-            }
-            if (!BitBlt(hdcWindow, 0, 0, rcClient.right, rcClient.bottom, hdcWindow2, 0, 0, SRCCOPY)) {
-                rd->AppendError(L"BitBlt failed\n");
-                PostMessageW(hWnd, WM_ERRORRENDER, 0, 0);
-                DeleteDC(hdcWindow2);
-                return 0;
-            }
-            DeleteDC(hdcWindow2);
-            EndPaint(hWnd, &ps);
+                            SRCCOPY))
+                throw std::runtime_error("Failed to call StretchBlt");
+            if (!BitBlt(hdcWindow, 0, 0, rcClient.right, rcClient.bottom, hdcWindow2, 0, 0, SRCCOPY))
+                throw std::runtime_error("Failed to call BitBlt");
+            if (!DeleteObject(SelectObject(hdcWindow2, hbmOldWindow2)))
+                throw std::runtime_error("Failed to delete drawing backbuffer bitmap");
+            if (!DeleteDC(hdcWindow2))
+                throw std::runtime_error("Failed to delete drawing backbuffer DC");
+            if (!EndPaint(hWnd, &ps))
+                throw std::runtime_error("Failed to call EndPaint");
             break;
         }
         case WM_KEYDOWN:
@@ -105,18 +102,6 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
                         SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
                         SetEvent(rd->hNextRenderEvent);
                         bIsRenderingKeyDown = true;
-                    }
-                    break;
-                case VK_OEM_PLUS:
-                    if (!bIsRenderingKeyDown && rd->batch_calculate > 0) {
-                        ++rd->batch_calculate;
-                        SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - New batch value: {}", rd->frame, rd->batch_calculate).c_str());
-                    }
-                    break;
-                case VK_OEM_MINUS:
-                    if (!bIsRenderingKeyDown) {
-                        --rd->batch_calculate;
-                        SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - New batch value: {}", rd->frame, rd->batch_calculate).c_str());
                     }
                     break;
                 default:
@@ -129,7 +114,7 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
             break;
         case WM_DESTROY:
             delete rd;
-            DeleteDC(hBackBufferDC);
+            DeleteDC(hdcRenderDCCopy);
             PostQuitMessage(0);
             break;
         default:

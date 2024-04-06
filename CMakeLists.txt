@@ -10,5 +10,8 @@ target_compile_options(LightSim PRIVATE -Wall -Wextra -Wpedantic -march=native
         -fno-math-errno
         -fno-trapping-math
         -fno-signed-zeros
+        -fopenmp
 )
 target_compile_definitions(LightSim PRIVATE NOMINMAX)
+target_include_directories(LightSim PRIVATE SYSTEM ${CMAKE_SOURCE_DIR}/libinc)
+target_link_libraries(LightSim PRIVATE libomp)
