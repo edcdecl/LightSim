@@ -47,8 +47,9 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
             auto hdcWindow = BeginPaint(hWnd, &ps);
-            if (bIsRenderingKeyDown && rd->tick < 2000) {
-                SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
+            SetStretchBltMode(hdcWindow, HALFTONE);
+            if (bIsRenderingKeyDown && rd->tick < 1500) {
+                SetWindowTextW(hWnd, std::format(L"LightSim - F{:010} T{:05} - Rendering...", rd->frame, rd->tick).c_str());
                 SetEvent(rd->hNextRenderEvent);
             } else
                 SetWindowTextW(hWnd, std::format(L"LightSim - F{:010} T{:05}", rd->frame, rd->tick).c_str());
@@ -99,7 +100,7 @@ static LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
             switch (wParam) {
                 case VK_SPACE:
                     if (!bIsRenderingKeyDown) {
-                        SetWindowTextW(hWnd, std::format(L"LightSim - F{:05} - Rendering...", rd->frame).c_str());
+                        SetWindowTextW(hWnd, std::format(L"LightSim - F{:010} T{:05} - Rendering...", rd->frame, rd->tick).c_str());
                         SetEvent(rd->hNextRenderEvent);
                         bIsRenderingKeyDown = true;
                     }
