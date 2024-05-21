@@ -8,13 +8,7 @@
 #include <omp_llvm.h>
 #include <vector>
 
-#define WM_COPYRENDER (WM_USER + 1)
-#define WM_ERRORRENDER (WM_USER + 2)
-
-#define DVWAVE_HEIGHT (0)
-#define DVWAVE_VELOCITY (1)
-#define DVACCUMULATED_LIGHT (2)
-#define DVRGB_MASS (3)
+#define RUIWM_COPYRENDER (WM_USER + 1)
 
 #define COLOR_SHIFT (DirectX::XMVectorSet(0.06, 0L, -0.06, 0))
 #define GLASS_COLORS (DirectX::XMVectorSet(25, 25, 25, 0))
@@ -40,9 +34,7 @@ struct Renderer final {
     };
     constexpr static float ACCUMULATED_EXPOSURE = 0.0005;
     std::vector<vec_ent_t> datavecs;
-    std::vector<DirectX::XMVECTOR> rmtmpv;
     std::vector<float> pixel_mass;
-    std::vector<COLORREF> rmrgbdv;
     HANDLE hStopRenderEvent;
     HANDLE hRenderThread;
     HWND hWnd;
@@ -50,24 +42,37 @@ struct Renderer final {
     long tick;
     long light_pos;
     std::mutex hdcRender_mutex;
-    HDC hdcRender;
-    HBITMAP hbmOldRender;
     std::mutex error_mutex;
     std::wstring error;
     HANDLE hNextRenderEvent;
-
+    std::vector<COLORREF> rgbRenderedPixels;
+    const BITMAPINFO bmInfo;
     explicit Renderer(HWND hWnd, int initial_size) : sizes(initial_size,
                                                            initial_size * 100,
                                                            (initial_size * 100) * (initial_size * 100),
                                                            lroundl(initial_size * 100.0 / 6.0)),
                                                      datavecs(sizes.image_data),
-                                                     rmtmpv(sizes.image_data),
                                                      pixel_mass(sizes.image_data),
-                                                     rmrgbdv(sizes.image_data),
                                                      hWnd(hWnd),
                                                      frame(0),
                                                      tick(0),
-                                                     light_pos(static_cast<long>(floor(sizes.view / 5.0) * sizes.view + floor(sizes.view / 5.0) + 1)) {
+                                                     light_pos(static_cast<long>(floor(sizes.view / 5.0) * sizes.view + floor(sizes.view / 5.0) + 1)),
+                                                     rgbRenderedPixels(sizes.image_data),
+                                                     bmInfo({
+                                                         .bmiHeader = {
+                                                                 .biSize = sizeof(BITMAPINFOHEADER),
+                                                                 .biWidth = sizes.view,
+                                                                 .biHeight = -sizes.view,
+                                                                 .biPlanes = 1,
+                                                                 .biBitCount = 32,
+                                                                 .biCompression = BI_RGB,
+                                                                 .biSizeImage = 0,
+                                                                 .biXPelsPerMeter = 0,
+                                                                 .biYPelsPerMeter = 0,
+                                                                 .biClrUsed = 0,
+                                                                 .biClrImportant = 0,
+                                                             }
+                                                     }) {
         omp_set_num_threads(omp_get_max_threads());
 #pragma omp parallel for default(none) shared(pixel_mass, sizes, datavecs)
         for (size_t i = 0; i < sizes.image_data; ++i) {
@@ -82,20 +87,6 @@ struct Renderer final {
         hStopRenderEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (!hStopRenderEvent)
             throw std::runtime_error("Failed to create stop render event\n");
-        auto referenceDC = CreateDCW(L"DISPLAY", nullptr, nullptr, nullptr);
-        if (!referenceDC)
-            throw std::runtime_error("Failed to create reference DC\n");
-        hdcRender = CreateCompatibleDC(referenceDC);
-        if (!hdcRender)
-            throw std::runtime_error("Failed to create render DC\n");
-        auto hbmRender = CreateCompatibleBitmap(referenceDC, sizes.view, sizes.view);
-        if (!hbmRender)
-            throw std::runtime_error("Failed to create render bitmap\n");
-        hbmOldRender = static_cast<HBITMAP>(SelectObject(hdcRender, hbmRender));
-        if (!hbmOldRender)
-            throw std::runtime_error("Failed to select render bitmap\n");
-        if (!DeleteDC(referenceDC))
-            throw std::runtime_error("Failed to delete reference DC\n");
     }
 
     ~Renderer() {
@@ -104,8 +95,6 @@ struct Renderer final {
         CloseHandle(hRenderThread);
         CloseHandle(hNextRenderEvent);
         CloseHandle(hStopRenderEvent);
-        DeleteObject(SelectObject(hdcRender, hbmOldRender));
-        DeleteDC(hdcRender);
     }
 
     void Calculate();

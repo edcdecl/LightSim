@@ -31,8 +31,12 @@ void dump(const std::vector<Renderer::vec_ent_t>& v, const std::string& file) {
 }
 #endif
 
+// this is my first time... (twss) manually optimizing code with SIMD
+// and this is still kinda not good bc it doesn't actually use intrinsics it does everything through directxmath
+// i might refactor this to use intrinsics later and use a different threading model that isn't openmp
 void Renderer::Calculate() {
     size_t i;
+    // check to see if we need to still emit a light source
     if (frame < 300) {
         auto repl = sin(XMConvertToRadians(frame * 45.83662439235437)) * 12;
 #pragma omp parallel for default(none) shared(datavecs, sizes, repl, light_pos)
@@ -97,9 +101,12 @@ void Renderer::Calculate() {
 }
 
 void Renderer::Render() {
-#pragma omp parallel for default(none) shared(datavecs, sizes, pixel_mass, rmrgbdv)
+#pragma omp parallel for default(none) shared(datavecs, sizes, pixel_mass, rgbRenderedPixels)
     for (size_t i = 0; i < sizes.image_data; ++i) {
         const auto dvv = datavecs[i];
+        const auto v255 = XMVectorReplicate(255);
+        const auto v2 = XMVectorReplicate(2);
+        const auto gc = GLASS_COLORS;
         const auto iv = XMVectorMultiply(
                 XMVectorPow(
                         XMVectorDivide(
@@ -109,54 +116,30 @@ void Renderer::Render() {
                                                 XMVectorSubtract(dvv.accumulated_light, XMVectorSplatOne())
                                         )
                                 ),
-                                XMVectorReplicate(2)
+                                v2
                         ),
-                        XMVectorReplicate(2)
+                        v2
                 ),
-                XMVectorReplicate(255)
+                v255
         );
         auto pv = pixel_mass[i] < 1 ?
                   XMVectorDivide(
                           XMVectorSubtract(
                                   XMVectorAdd(
-                                          XMVectorAdd(iv, GLASS_COLORS),
-                                          XMVectorReplicate(255)
+                                          XMVectorAdd(iv, gc),
+                                          v255
                                   ),
                                   XMVectorAbs(
                                           XMVectorSubtract(
-                                                  XMVectorAdd(iv, GLASS_COLORS),
-                                                  XMVectorReplicate(255)
+                                                  XMVectorAdd(iv, gc),
+                                                  v255
                                           )
                                   )
                           ),
-                          XMVectorReplicate(2)
+                          v2
                   ) : iv;
-        rmrgbdv[i] = RGB(lroundl(XMVectorGetX(pv)), lroundl(XMVectorGetY(pv)), lroundl(XMVectorGetZ(pv)));
+        rgbRenderedPixels[i] = RGB(lroundl(XMVectorGetX(pv)), lroundl(XMVectorGetY(pv)), lroundl(XMVectorGetZ(pv)));
     }
-    auto bmi = BITMAPINFO {
-            .bmiHeader = {
-                    .biSize = sizeof(BITMAPINFOHEADER),
-                    .biWidth = sizes.view,
-                    .biHeight = -sizes.view,
-                    .biPlanes = 1,
-                    .biBitCount = 32,
-                    .biCompression = BI_RGB,
-                    .biSizeImage = 0,
-                    .biXPelsPerMeter = 0,
-                    .biYPelsPerMeter = 0,
-                    .biClrUsed = 0,
-                    .biClrImportant = 0,
-            }
-    };
-    hdcRender_mutex.lock();
-    if (!SetDIBitsToDevice(hdcRender,
-                           0, 0, sizes.view, sizes.view,
-                           0, 0,
-                           0, sizes.view,
-                           rmrgbdv.data(), &bmi, DIB_RGB_COLORS))
-        throw std::runtime_error("Failed to set DIBits");
-    hdcRender_mutex.unlock();
-
     {
         if (!std::filesystem::exists(std::format("./out/s{:02X}", sizes.basic)))
             std::filesystem::create_directory(std::format("./out/s{:02X}", sizes.basic));
@@ -169,8 +152,8 @@ void Renderer::Render() {
                 .bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER),
         };
         file.write(reinterpret_cast<const char*>(&bfh), sizeof(BITMAPFILEHEADER));
-        file.write(reinterpret_cast<const char*>(&bmi.bmiHeader), sizeof(BITMAPINFOHEADER));
-        file.write(reinterpret_cast<const char*>(rmrgbdv.data()), sizes.image_data * 4);
+        file.write(reinterpret_cast<const char*>(&bmInfo.bmiHeader), sizeof(BITMAPINFOHEADER));
+        file.write(reinterpret_cast<const char*>(rgbRenderedPixels.data()), sizes.image_data * 4);
         file.close();
     }
 }
@@ -186,7 +169,7 @@ DWORD WINAPI Renderer::Thread(LPVOID lpThreadParameter) {
             rd->Calculate();
         rd->Render();
         ++rd->tick;
-        PostMessageW(rd->hWnd, WM_COPYRENDER, 0, 0);
+        PostMessageW(rd->hWnd, RUIWM_COPYRENDER, 0, 0);
     }
     return 0;
 }
